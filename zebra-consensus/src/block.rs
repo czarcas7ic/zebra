@@ -29,9 +29,7 @@ use zebra_chain::{
     transaction, transparent,
     work::equihash,
 };
-use zebra_state::{
-    self as zs, CommitSemanticallyVerifiedBlockRequest, LayeredStateError, MappedRequest,
-};
+use zebra_state::{self as zs, CommitSemanticallyVerifiedBlockRequest, MappedRequest};
 
 use crate::{error::*, transaction as tx, BoxError};
 
@@ -358,18 +356,14 @@ where
                 };
             }
 
-            let committed_hash = CommitSemanticallyVerifiedBlockRequest::new(prepared_block)
-                .mapped_oneshot(&mut state_service)
+            CommitSemanticallyVerifiedBlockRequest::new(prepared_block)
+                .mapped_oneshot_with(&mut state_service, |source| {
+                    VerifyBlockError::StateService { source, hash }
+                })
                 .await
-                .map_err(|err| match err {
-                    LayeredStateError::State(commit_error) => commit_error.into(),
-                    LayeredStateError::Layer(source) => {
-                        VerifyBlockError::StateService { source, hash }
-                    }
-                })?;
-
-            assert_eq!(committed_hash, hash, "state must commit correct hash");
-            Ok(hash)
+                .inspect(|&committed_hash| {
+                    assert_eq!(committed_hash, hash, "state must commit correct hash");
+                })
         }
         .instrument(span)
         .boxed()

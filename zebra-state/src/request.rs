@@ -663,6 +663,27 @@ pub trait MappedRequest: Sized + Send + 'static {
         let response = state.ready().await?.call(self.map_request()).await?;
         Ok(Self::map_response(response))
     }
+
+    /// Similar to [`mapped_oneshot`](MappedRequest::mapped_oneshot) but maps the box error
+    /// potentially returned by a tower layer to a generic error type with the provided closure.
+    ///
+    /// Returns a [`Result<MappedResponse, E>`].
+    #[allow(async_fn_in_trait)]
+    async fn mapped_oneshot_with<State, E>(
+        self,
+        state: &mut State,
+        map_err_f: impl FnOnce(BoxError) -> E,
+    ) -> Result<Self::MappedResponse, E>
+    where
+        State: Service<Request, Response = Response, Error = BoxError>,
+        State::Future: Send,
+        E: From<Self::Error>,
+    {
+        self.mapped_oneshot(state).await.map_err(|e| match e {
+            LayeredStateError::State(commit_error) => commit_error.into(),
+            LayeredStateError::Layer(source) => map_err_f(source),
+        })
+    }
 }
 
 /// Performs contextual validation of the given semantically verified block,
